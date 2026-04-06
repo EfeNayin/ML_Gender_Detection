@@ -1,14 +1,19 @@
-import numpy as np 
-import cv2
-from glob import glob 
 import os
+import cv2
+import numpy as np
 import pandas as pd
+from glob import glob
 
 def get_image_paths(directory_path):
-    if not directory_path.endswith("/"):
-        directory_path += "/"
-        
-    return glob(directory_path + '*.jpg')
+    search_path = os.path.join(directory_path, '*.jpg')
+    return glob(search_path)
+
+
+def create_directory(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+        print(f"Directory created: {path}")
+
 
 def face_detection(image_path, haar_path):
     img = cv2.imread(image_path)
@@ -16,26 +21,16 @@ def face_detection(image_path, haar_path):
         return None
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
     face_cascade = cv2.CascadeClassifier(haar_path)
-
     faces = face_cascade.detectMultiScale(gray, 1.5, 5)
 
     if len(faces) > 0:
         x, y, w, h = faces[0]
-
         cropped_face = img[y:y+h, x:x+w] 
-        
         return cropped_face
-    else:
-        return None
     
-
-def create_directory(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
-        print(f"Klasör oluşturuldu: {path}")
-
+    return None
+    
 
 def process_image_for_training(path):
     try:
@@ -56,35 +51,11 @@ def process_image_for_training(path):
         return flatten_image
 
     except Exception as e:
+        print(f"Error processing ({path}): {e}")
         return None
 
 
-def create_training_data(df):
-
-    data_list = []  
-    labels_list = [] 
-
-    print("Wait please...")
-    
-    for index, row in df.iterrows():
-
-        processed_img = process_image_for_training(row['filepath'])
-        
-        if processed_img is not None:
-            data_list.append(processed_img)
-            labels_list.append(row['gender'])
-    
-    X = np.array(data_list)
-    y = np.array(labels_list)
-    
-    X = X / 255.0
-    
-    print(f"Shape: {X.shape}")
-    return X, y
-
-
 def load_data_paths(female_folder, male_folder):
-
     female_files = get_image_paths(female_folder)
     male_files = get_image_paths(male_folder)
     
@@ -96,9 +67,29 @@ def load_data_paths(female_folder, male_folder):
     
     df = pd.concat([df_female, df_male], axis=0)
     
-    # Karıştır (Shuffle)
     df = df.sample(frac=1).reset_index(drop=True)
     
     print(f"Dataset loaded: {len(df)} images found.")
-
     return df
+
+
+def create_training_data(df):
+    data_list = []  
+    labels_list = [] 
+
+    print("Processing images for training, please wait...")
+    
+    for index, row in df.iterrows():
+        processed_img = process_image_for_training(row['filepath'])
+        
+        if processed_img is not None:
+            data_list.append(processed_img)
+            labels_list.append(row['gender'])
+    
+    X = np.array(data_list)
+    y = np.array(labels_list)
+
+    X = X / 255.0
+    
+    print(f"Final Data Shape: {X.shape}")
+    return X, y

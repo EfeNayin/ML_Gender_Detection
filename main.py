@@ -86,9 +86,11 @@ def train_svm_model():
     data_pca = np.load(PCA_DATA_PATH)
     X = data_pca['arr_0'] 
     y = data_pca['arr_1'] 
+
     print(f"Training data loaded. Shape: {X.shape}")
 
     x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y)
+    
     print(f"Train set: {x_train.shape}, Test set: {x_test.shape}")
 
     model_svc = SVC(probability=True)
