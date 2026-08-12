@@ -1,75 +1,104 @@
-import numpy as np
-import sklearn
+import os
 import pickle
+
 import cv2
+import numpy as np
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_DIR = os.path.join(BASE_DIR, "model")
+
+HAAR_PATH = os.path.join(MODEL_DIR, "haarcascade_frontalface_default.xml")
+SVM_PATH = os.path.join(MODEL_DIR, "model_svm.pickle")
+PCA_PATH = os.path.join(MODEL_DIR, "pca_dict.pickle")
+
+haar = cv2.CascadeClassifier(HAAR_PATH)
+if haar.empty():
+    raise RuntimeError(f"Haar cascade yüklenemedi: {HAAR_PATH}")
+
+with open(SVM_PATH, "rb") as f:
+    model_svm = pickle.load(f)
+
+with open(PCA_PATH, "rb") as f:
+    pca_models = pickle.load(f)
+
+model_pca = pca_models["pca"]
+
+COLORS = {"male": (255, 255, 0), "female": (255, 0, 255)}
+FALLBACK_COLOR = (0, 255, 0)
 
 
-# Load all models
-haar = cv2.CascadeClassifier("./model/haarcascade_frontalface_default.xml") # cascade classifier
-model_svm = pickle.load(open("./model/model_svm.pickle",mode = "rb")) #machiene learning model
-pca_models = pickle.load(open("./model/pca_dict.pickle",mode = "rb")) #pca dictionary
-
-
-model_pca = pca_models["pca"]  # PCA Model
-mean_face_arr = pca_models["mean_face"] # Mean face
-
-
-def faceRecognitionPipeline(filename,path=True):
-    if path:
-        #step-01:read image
-        img = cv2.imread(filename) #BGR
+def _preprocess(roi_gray):
+    if roi_gray.shape[0] >= 100:
+        interpolation = cv2.INTER_AREA
     else:
-        img = filename #array
-    #step-02:conert into gray scale
-    gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-    #step-03:crop the face(using haar cascade classifier)
-    faces = haar.detectMultiScale(gray,1.5,3)
+        interpolation = cv2.INTER_CUBIC
+
+    roi_resize = cv2.resize(roi_gray, (100, 100), interpolation=interpolation)
+    flat = roi_resize.flatten().reshape(1, -1).astype(np.float64) / 255.0
+    return roi_resize, flat
+
+
+def faceRecognitionPipeline(filename, path=True):
+    if path:
+        img = cv2.imread(filename)
+    else:
+        img = filename
+
+    if img is None:
+        raise ValueError(f"Image is not read: {filename}")
+
+    img = img.copy()
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    faces = haar.detectMultiScale(
+        gray,
+        scaleFactor=1.1,
+        minNeighbors=5,
+        minSize=(40, 40),
+    )
+
     predictions = []
-    for x,y,w,h in faces:
-        #cv2.rectangle(img,(x,y),(x+w,y+h),(0,255,0),2)
-        roi = gray[y:y+h,x:x+w]
-        
-        #step-04:normalization(0-1)
-        roi = roi / 255.0
-        #step-05: resize images(100,100)
-        if roi.shape[1] > 100:
-            roi_resize = cv2.resize(roi,(100,100),cv2.INTER_AREA)
-        else:
-             roi_resize = cv2.resize(roi,(100,100),cv2.INTER_CUBIC)
-            
-        #step-06:Flattening (1x10000)
-        roi_reshape = roi_resize.reshape(1,10000) 
-        #step-07:subtract with mean
-        roi_mean = roi_reshape - mean_face_arr #subtract face with mean face
-        # step-08:get eigen image(apply roi_mean to pca)
-        eigen_image = model_pca.transform(roi_mean)
-        #step-09: Eigen Image for Visualization
-        eig_img = model_pca.inverse_transform(eigen_image)
-        #step-10: pass to mş model(svm) and get predictions
-        results = model_svm.predict(eigen_image)
-        prob_score = model_svm.predict_proba(eigen_image)
-        prob_score_max = prob_score.max()
-        #step-11: generate report
-        text = "%s : %d"%(results[0],prob_score_max*100)
-        print(text)
-    
-        #defining color based on results
-        if results[0] == "male":
-            color = (255,255,0)
-        else:
-            color = (255,0,255)
-        
-        cv2.rectangle(img,(x,y),(x+w,y+h),color,2)
-        cv2.rectangle(img,(x,y-30),(x+w,y),color,-1)
-        cv2.putText(img,text,(x,y),cv2.FONT_HERSHEY_PLAIN,3,(255,255,255),5)
-        output = {
-            "roi":roi,
-            "eig_img":eig_img,
-            "prediction_name":results[0],
-            "score":prob_score_max
-        }
-    
-        predictions.append(output)
-        
-    return img,predictions
-    
+    for (x, y, w, h) in faces:
+        roi_gray = gray[y : y + h, x : x + w]
+        roi_resize, flat = _preprocess(roi_gray)
+
+        eigen_image = model_pca.transform(flat)
+        reconstructed = model_pca.inverse_transform(eigen_image)
+
+        result = model_svm.predict(eigen_image)[0]
+        score = float(model_svm.predict_proba(eigen_image).max())
+
+        eig_img = np.clip(reconstructed.reshape(100, 100) * 255.0, 0, 255).astype(
+            np.uint8
+        )
+
+        font_scale = max(0.45, w / 320.0)
+        thickness = max(1, int(round(w / 200.0)))
+        band_height = int(28 * font_scale) + 6
+        color = COLORS.get(result, FALLBACK_COLOR)
+        label = f"{result} {score * 100:.0f}%"
+
+        cv2.rectangle(img, (x, y), (x + w, y + h), color, thickness + 1)
+        cv2.rectangle(img, (x, max(0, y - band_height)), (x + w, y), color, -1)
+        cv2.putText(
+            img,
+            label,
+            (x + 4, max(band_height - 8, y - 8)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            font_scale,
+            (0, 0, 0),
+            thickness,
+            cv2.LINE_AA,
+        )
+
+        predictions.append(
+            {
+                "roi": roi_resize,
+                "eig_img": eig_img,
+                "prediction_name": result,
+                "score": score,
+                "box": (int(x), int(y), int(w), int(h)),
+            }
+        )
+
+    return img, predictions
