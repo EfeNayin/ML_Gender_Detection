@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block styles %}
+    .results { margin-top: 28px; }
+
+    .marked {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--rule);
+    }
+
+    .faces {
+      list-style: none;
+      margin: 24px 0 0;
+      padding: 0;
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    }
+
+    .face {
+      border: 1px solid var(--rule);
+      background: var(--card);
+      padding: 16px;
+    }
+
+    .frames {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .frame { flex: 1; }
+
+    .frame img {
+      display: block;
+      width: 100%;
+      height: auto;
+      image-rendering: pixelated;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+    }
+
+    .frame figcaption {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--mid);
+      margin-top: 6px;
+    }
+
+    .verdict {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-weight: 700;
+      font-size: 19px;
+      letter-spacing: -0.01em;
+    }
+
+    .verdict .pct {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--mid);
+    }
+
+    .meter {
+      height: 4px;
+      margin-top: 10px;
+      background: var(--rule);
+    }
+
+    .meter i { display: block; height: 100%; }
+
+    .male .verdict strong, .male .meter i { color: var(--male); background-color: var(--male); }
+    .female .verdict strong, .female .meter i { color: var(--female); background-color: var(--female); }
+    .male .verdict strong, .female .verdict strong { background: none; }
+
+    .tag {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      color: var(--mid);
+      display: block;
+      margin-bottom: 8px;
+    }
+{% endblock %}
+
+{% block content %}
+  <section class="card">
+    <h2>Upload image</h2>
+    <form action="/" method="post" enctype="multipart/form-data">
+      <div class="field">
+        <input type="file" name="image_name" accept="image/*" required>
+        <button type="submit">Scan faces</button>
+      </div>
+    </form>
+    <p class="hint">JPG, PNG, BMP or WEBP · max 8 MB · works best with front-facing faces</p>
+
+    {% if error %}
+      <p class="alert">{{ error }}</p>
+    {% endif %}
+  </section>
+
+  {% if result %}
+    <section class="results">
+      <div class="card">
+        <h2>Detected faces — {{ report|length }}</h2>
+        <img class="marked" src="{{ url_for('static', filename='predict/' ~ result) }}" alt="Marked result image">
+
+        <ul class="faces">
+          {% for face in report %}
+            <li class="face {{ face.name }}">
+              <span class="tag">Face {{ face.index }}</span>
+              <div class="frames">
+                <figure class="frame">
+                  <img src="{{ url_for('static', filename='predict/' ~ face.roi) }}" alt="Cropped gray face {{ face.index }}">
+                  <figcaption>Model input</figcaption>
+                </figure>
+                <figure class="frame">
+                  <img src="{{ url_for('static', filename='predict/' ~ face.eigen) }}" alt="Eigenface reconstruction {{ face.index }}">
+                  <figcaption>50 components</figcaption>
+                </figure>
+              </div>
+              <p class="verdict">
+                <strong>{{ 'Male' if face.name == 'male' else 'Female' }}</strong>
+                <span class="pct">{{ face.score }}%</span>
+              </p>
+              <div class="meter"><i style="width: {{ face.score }}%"></i></div>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}

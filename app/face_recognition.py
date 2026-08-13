@@ -12,8 +12,9 @@ SVM_PATH = os.path.join(MODEL_DIR, "model_svm.pickle")
 PCA_PATH = os.path.join(MODEL_DIR, "pca_dict.pickle")
 
 haar = cv2.CascadeClassifier(HAAR_PATH)
+
 if haar.empty():
-    raise RuntimeError(f"Haar cascade yüklenemedi: {HAAR_PATH}")
+    raise RuntimeError(f"Haar cascade did not download: {HAAR_PATH}")
 
 with open(SVM_PATH, "rb") as f:
     model_svm = pickle.load(f)
@@ -52,7 +53,7 @@ def faceRecognitionPipeline(filename, path=True):
 
     faces = haar.detectMultiScale(
         gray,
-        scaleFactor=1.1,
+        scaleFactor=1.5,
         minNeighbors=5,
         minSize=(40, 40),
     )
