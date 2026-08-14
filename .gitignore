@@ -1,5 +1,16 @@
+# Sanal ortam
 .venv/
 __pycache__/
+
+# Veri setleri
 data/
 crop_data/
-*.pickle
+
+# Çalışma zamanı çıktıları
+static/upload/
+static/predict/
+test_results/
+
+# Editör
+.vscode/
+.DS_Store
