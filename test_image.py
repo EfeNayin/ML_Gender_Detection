@@ -1,72 +1,78 @@
-import numpy as np
-import pickle
-import cv2
+"""Runs gender detection on a single image.
+
+Usage:
+    python test_image.py
+    python test_image.py ./test_images/test_3.jpg
+    python test_image.py photo.jpg --no-window
+
+The processing pipeline is defined in app/face_recognition.py; this script
+calls it. Thus, training, the web interface, and this test use the same steps.
+"""
+
+import argparse
 import os
+import sys
 
-IMAGE_PATH = './test_images/test_6.jpg' 
-RESULT_FOLDER = './test_results'
-HAAR_CASCADE_PATH = './Classifier/haarcascade_frontalface_default.xml'
-MODEL_PATH = './model/model_svm.pickle'
-PCA_DICT_PATH = './model/pca_dict.pickle'
+import cv2
 
-COLORS = {
-    'male': (255, 255, 0),    
-    'female': (255, 0, 255)  
-}
+from app.face_recognition import faceRecognitionPipeline
 
-def run_test():
-    
-    if not os.path.exists(RESULT_FOLDER):
-        os.makedirs(RESULT_FOLDER)
-        print(f"Directory created: '{RESULT_FOLDER}'")
+RESULT_FOLDER = "./test_results"
+DEFAULT_IMAGE = "./test_images/test_6.jpg"
+
+
+def run_test(image_path, show_window=True):
+    if not os.path.exists(image_path):
+        print(f"Error: Image not found at {image_path}")
+        return 1
+
+    os.makedirs(RESULT_FOLDER, exist_ok=True)
 
     try:
-        haar = cv2.CascadeClassifier(HAAR_CASCADE_PATH)
-        model_svm = pickle.load(open(MODEL_PATH, mode='rb'))
-        pca_models = pickle.load(open(PCA_DICT_PATH, mode='rb'))
-        model_pca = pca_models['pca']
-    except Exception as e:
-        print(f"Error loading models or classifier: {e}")
-        return
+        pred_img, predictions = faceRecognitionPipeline(image_path)
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return 1
 
-    img = cv2.imread(IMAGE_PATH)
-    if img is None:
-        print(f"Error: Image not found at {IMAGE_PATH}")
-        return
+    print(f"Detected faces: {len(predictions)}")
 
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    faces = haar.detectMultiScale(gray, 1.5, 3)
-    print(f"Detected faces: {len(faces)}")
+    if not predictions:
+        print("No face detected. Try a front-facing photo where the face "
+              "is clearly visible.")
+        return 0
 
-    for x, y, w, h in faces:
-        roi = gray[y:y+h, x:x+w] / 255.0
-        
-        interp = cv2.INTER_AREA if roi.shape[1] > 100 else cv2.INTER_CUBIC
-        roi_resize = cv2.resize(roi, (100, 100), interpolation=interp)
-        
-        roi_reshape = roi_resize.reshape(1, 10000)
-        eigen_image = model_pca.transform(roi_reshape)
-        
-        prediction = model_svm.predict(eigen_image)[0]
-        prob_score = model_svm.predict_proba(eigen_image).max()
-        
-        print(f"Prediction: {prediction} (Confidence: %{prob_score*100:.2f})")
-        
-        color = COLORS.get(prediction, (0, 255, 0))
-        label_text = f"{prediction.capitalize()}: {prob_score*100:.0f}%"
-        
-        cv2.rectangle(img, (x, y), (x+w, y+h), color, 2)
-        cv2.rectangle(img, (x, y-40), (x+w, y), color, -1)
-        cv2.putText(img, label_text, (x, y-10), cv2.FONT_HERSHEY_PLAIN, 1.5, (255, 255, 255), 2)
+    for i, face in enumerate(predictions, start=1):
+        print(f"  Face {i}: {face['prediction_name']} "
+              f"(confidence: %{face['score'] * 100:.2f})")
 
-    filename = os.path.basename(IMAGE_PATH)
+    filename = os.path.basename(image_path)
     save_path = os.path.join(RESULT_FOLDER, f"result_{filename}")
-    cv2.imwrite(save_path, img)
+    cv2.imwrite(save_path, pred_img)
     print(f"Output saved to: {save_path}")
 
-    cv2.imshow('Gender Detection Results', img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    if show_window:
+        cv2.imshow("Gender Detection Results", pred_img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+    return 0
+
 
 if __name__ == "__main__":
-    run_test()
+    parser = argparse.ArgumentParser(
+        description="Run gender detection on a single image."
+    )
+    parser.add_argument(
+        "image",
+        nargs="?",
+        default=DEFAULT_IMAGE,
+        help=f"Path to the image (default: {DEFAULT_IMAGE})",
+    )
+    parser.add_argument(
+        "--no-window",
+        action="store_true",
+        help="Save the result without opening a preview window.",
+    )
+    args = parser.parse_args()
+
+    sys.exit(run_test(args.image, show_window=not args.no_window))
